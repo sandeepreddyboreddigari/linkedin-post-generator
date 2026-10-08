@@ -3,6 +3,7 @@
 import json
 import logging
 import os
+import time
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -163,15 +164,68 @@ Important factual boundary: only the additional information contains personal ev
                 detail="Gemini support is not installed. Install the dependencies in backend/requirements.txt.",
             ) from error
 
-        try:
+               try:
             client = genai.Client(api_key=api_key)
-            response = client.models.generate_content(
-                model=GEMINI_MODEL,
-                contents=prompt,
-                config=types.GenerateContentConfig(system_instruction=system_instruction),
+
+            max_attempts = 3
+
+            for attempt in range(max_attempts):
+                try:
+                    response = client.models.generate_content(
+                        model=GEMINI_MODEL,
+                        contents=prompt,
+                        config=types.GenerateContentConfig(
+                            system_instruction=system_instruction
+                        ),
+                    )
+
+                    generated_post = (response.text or "").strip()
+                    break
+
+                except genai_errors.APIError as error:
+                    status_code = getattr(error, "code", None)
+                    message = str(
+                        getattr(error, "message", None)
+                        or "Gemini API request failed."
+                    )
+
+                    # Retry temporary Gemini errors
+                    if status_code in {429, 500, 502, 503, 504} and attempt < max_attempts - 1:
+                        wait_time = 2 ** attempt
+                        logger.warning(
+                            "Gemini temporary error HTTP %s. Retrying in %s seconds...",
+                            status_code,
+                            wait_time,
+                        )
+                        time.sleep(wait_time)
+                        continue
+
+                    message = message.replace(api_key, "[REDACTED]")
+
+                    logger.error(
+                        "Gemini API error type=%s status_code=%s message=%s",
+                        type(error).__name__,
+                        status_code,
+                        message,
+                    )
+
+                    raise HTTPException(
+                        status_code=502,
+                        detail=f"Gemini API error (HTTP {status_code}): {message}",
+                    ) from error
+
+        except HTTPException:
+            raise
+
+        except Exception as error:
+            logger.error(
+                "Gemini request failed type=%s",
+                type(error).__name__,
             )
-            generated_post = (response.text or "").strip()
-        except genai_errors.APIError as error:
+            raise HTTPException(
+                status_code=502,
+                detail="Gemini request failed. Check network access and the Gemini service configuration.",
+            ) from error
             status_code = getattr(error, "code", None)
             message = str(getattr(error, "message", None) or "Gemini API request failed.")
             message = message.replace(api_key, "[REDACTED]")
