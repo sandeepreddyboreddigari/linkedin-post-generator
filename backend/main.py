@@ -1,6 +1,7 @@
 """The entry point for the LinkedIn Post Generator API."""
 
 import json
+import logging
 import os
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -11,7 +12,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, field_validator
 
 
+logger = logging.getLogger(__name__)
+AI_PROVIDER = os.getenv("AI_PROVIDER", "ollama").strip().lower()
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434").rstrip("/")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
 FRONTEND_ORIGINS = [
     origin.strip()
     for origin in os.getenv(
@@ -66,7 +70,7 @@ def health_check():
 def generate_linkedin_post(
     topic: str, purpose: str, audience: str, tone: str, length: str, additional_info: str = ""
 ) -> str:
-    """Ask the local Ollama model for one LinkedIn post."""
+    """Generate one LinkedIn post using the configured AI provider."""
 
     length_guidance = {
         "Short": "about 80 to 120 words",
@@ -107,39 +111,92 @@ User-provided personal facts, experience, challenges, people, and context: {addi
 Important factual boundary: only the additional information contains personal events and claims. The topic is a subject, not proof that the person completed a course, made progress, built something, achieved a result, or has future plans. Do not invent experiences, technologies, people, effort, outcomes, or next steps. Do not embellish a named person's role, qualities, or contribution. Do not add emotions or judgments as if the user stated them. You may use a modest reflection directly supported by the stated details, but no other personal claims. If details are limited, write a shorter, honest post rather than filling gaps. Mention challenges and gratitude only when supplied.
 """
 
-    request = Request(
-        f"{OLLAMA_BASE_URL}/api/generate",
-        data=json.dumps({
-            "model": "llama3.2:3b",
-            "system": (
-                "You are an editor helping a real person write an engaging LinkedIn post, not an essay generator. "
-                "Follow the requested purpose, tone, first-person voice, hook, and length. Use only facts explicitly "
-                "present in the user's details. Do not embellish or infer motives, effort, emotions, progress, outcomes, "
-                "or anything about a named person's role. Do not claim a course was completed unless explicitly stated. "
-                "For personal posts, open with an engaging first-person hook and finish with 3 to 6 relevant hashtags. "
-                "Return only the post text."
-            ),
-            "prompt": prompt,
-            "stream": False,
-        }).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
-        method="POST",
+    system_instruction = (
+        "You are an editor helping a real person write an engaging LinkedIn post, not an essay generator. "
+        "Follow the requested purpose, tone, first-person voice, hook, and length. Use only facts explicitly "
+        "present in the user's details. Do not embellish or infer motives, effort, emotions, progress, outcomes, "
+        "or anything about a named person's role. Do not claim a course was completed unless explicitly stated. "
+        "For personal posts, open with an engaging first-person hook and finish with 3 to 6 relevant hashtags. "
+        "Return only the post text."
     )
-    try:
-        with urlopen(request, timeout=120) as response:
-            result = json.loads(response.read().decode("utf-8"))
-    except URLError as error:
-        if isinstance(error, HTTPError):
+
+    if AI_PROVIDER == "ollama":
+        request = Request(
+            f"{OLLAMA_BASE_URL}/api/generate",
+            data=json.dumps({
+                "model": "llama3.2:3b",
+                "system": system_instruction,
+                "prompt": prompt,
+                "stream": False,
+            }).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urlopen(request, timeout=120) as response:
+                result = json.loads(response.read().decode("utf-8"))
+        except URLError as error:
+            if isinstance(error, HTTPError):
+                raise HTTPException(
+                    status_code=502,
+                    detail=f"Ollama returned HTTP {error.code}. Check that model llama3.2:3b is available.",
+                ) from error
             raise HTTPException(
                 status_code=502,
-                detail=f"Ollama returned HTTP {error.code}. Check that model llama3.2:3b is available.",
+                detail=f"Cannot connect to Ollama at {OLLAMA_BASE_URL}. Start Ollama and ensure llama3.2:3b is available.",
             ) from error
-        raise HTTPException(
-            status_code=502,
-            detail=f"Cannot connect to Ollama at {OLLAMA_BASE_URL}. Start Ollama and ensure llama3.2:3b is available.",
-        ) from error
+        generated_post = result.get("response", "").strip()
+    elif AI_PROVIDER == "gemini":
+        api_key = os.getenv("GEMINI_API_KEY")
+        if not api_key:
+            raise HTTPException(
+                status_code=503,
+                detail="Production AI configuration is missing: set GEMINI_API_KEY in the service environment.",
+            )
 
-    generated_post = result.get("response", "").strip()
+        try:
+            from google import genai
+            from google.genai import errors as genai_errors, types
+        except ImportError as error:
+            raise HTTPException(
+                status_code=503,
+                detail="Gemini support is not installed. Install the dependencies in backend/requirements.txt.",
+            ) from error
+
+        try:
+            client = genai.Client(api_key=api_key)
+            response = client.models.generate_content(
+                model=GEMINI_MODEL,
+                contents=prompt,
+                config=types.GenerateContentConfig(system_instruction=system_instruction),
+            )
+            generated_post = (response.text or "").strip()
+        except genai_errors.APIError as error:
+            status_code = getattr(error, "code", None)
+            message = str(getattr(error, "message", None) or "Gemini API request failed.")
+            message = message.replace(api_key, "[REDACTED]")
+            logger.error(
+                "Gemini API error type=%s status_code=%s message=%s",
+                type(error).__name__,
+                status_code,
+                message,
+            )
+            raise HTTPException(
+                status_code=502,
+                detail=f"Gemini API error (HTTP {status_code}): {message}",
+            ) from error
+        except Exception as error:
+            logger.error("Gemini request failed type=%s", type(error).__name__)
+            raise HTTPException(
+                status_code=502,
+                detail="Gemini request failed. Check network access and the Gemini service configuration.",
+            ) from error
+    else:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Unsupported AI_PROVIDER '{AI_PROVIDER}'. Set it to 'ollama' or 'gemini'.",
+        )
+
     if not generated_post:
         raise HTTPException(
             status_code=502,
