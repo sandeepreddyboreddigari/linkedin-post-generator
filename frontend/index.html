@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Draft professional LinkedIn posts from a topic and a few simple choices.">
+  <title>LinkedIn Post Generator</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="script.js" defer></script>
+</head>
+<body>
+  <header class="site-header">
+    <a class="brand" href="#main-content" aria-label="LinkedIn Post Generator home">
+      <span class="brand-mark" aria-hidden="true">in</span>
+      <span>Post Generator</span>
+    </a>
+    <span class="header-note">A writing tool for your next idea</span>
+  </header>
+
+  <main id="main-content" class="page-shell">
+    <section class="intro" aria-labelledby="page-title">
+      <p class="eyebrow">WRITE WITH PURPOSE</p>
+      <h1 id="page-title">LinkedIn Post Generator</h1>
+      <p class="subtitle">Turn a topic into a thoughtful LinkedIn post. Choose who you’re writing for and the voice you want to use.</p>
+    </section>
+
+    <div class="workspace">
+      <section class="card form-card" aria-labelledby="form-title">
+        <div class="card-heading">
+          <div>
+            <p class="step-label">YOUR POST</p>
+            <h2 id="form-title">Set up your draft</h2>
+          </div>
+          <span class="draft-badge">New draft</span>
+        </div>
+
+        <form id="post-form">
+          <div class="field">
+            <label for="topic">Topic</label>
+            <input
+              id="topic"
+              name="topic"
+              type="text"
+              placeholder="e.g. What I learned from my first leadership role"
+              required
+            >
+            <p class="field-hint">What would you like to share?</p>
+          </div>
+
+          <div class="field">
+            <label for="purpose">Post Purpose</label>
+            <select id="purpose" name="purpose" required>
+              <option value="" selected disabled>Choose a purpose</option>
+              <option value="Project Progress">Project Progress</option>
+              <option value="Learning Progress">Learning Progress</option>
+              <option value="Achievement">Achievement</option>
+              <option value="Milestone">Milestone</option>
+              <option value="Gratitude">Gratitude</option>
+              <option value="Tech News">Tech News</option>
+              <option value="Collaboration">Collaboration</option>
+              <option value="Other">Other</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label for="audience">Target audience</label>
+            <input
+              id="audience"
+              name="audience"
+              type="text"
+              placeholder="e.g. Early-career professionals"
+              required
+            >
+          </div>
+
+          <div class="field-row">
+            <div class="field">
+              <label for="tone">Tone</label>
+              <select id="tone" name="tone" required>
+                <option value="" selected disabled>Choose a tone</option>
+                <option value="Professional">Professional</option>
+                <option value="Friendly">Friendly</option>
+                <option value="Casual">Casual</option>
+                <option value="Inspirational">Inspirational</option>
+                <option value="Storytelling">Storytelling</option>
+                <option value="Thoughtful">Thoughtful</option>
+              </select>
+            </div>
+
+            <div class="field">
+              <label for="length">Post length</label>
+              <select id="length" name="length" required>
+                <option value="" selected disabled>Choose a length</option>
+                <option value="Short">Short</option>
+                <option value="Medium">Medium</option>
+                <option value="Long">Long</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="additional-info">Additional information (optional)</label>
+            <textarea id="additional-info" name="additional_info" rows="3" placeholder="Add details, challenges, people to thank, or context to include"></textarea>
+          </div>
+
+          <div id="error-message" class="error-message" role="alert" hidden></div>
+
+          <button class="generate-button" type="submit">
+            <span aria-hidden="true">✦</span>
+            Generate Post
+          </button>
+          <p class="privacy-note">Your draft will appear here. You can review and edit it before sharing.</p>
+        </form>
+      </section>
+
+      <section class="card result-card" aria-labelledby="result-title">
+        <div class="card-heading result-heading">
+          <div>
+            <p class="step-label">YOUR RESULT</p>
+            <h2 id="result-title">Generated post</h2>
+          </div>
+          <span class="result-icon" aria-hidden="true">✎</span>
+        </div>
+
+        <div id="loading-message" class="loading-message" role="status" hidden>
+          <span class="loading-dot" aria-hidden="true"></span>
+          Generating your post…
+        </div>
+
+        <div id="post-output" class="post-output" aria-live="polite">
+          <div class="empty-state">
+            <span class="empty-icon" aria-hidden="true">✧</span>
+            <h3>Your next post starts here</h3>
+            <p>Fill in the details and your generated post will appear in this space.</p>
+          </div>
+        </div>
+
+        <p class="preview-footer"><span class="preview-dot" aria-hidden="true"></span> Preview area</p>
+      </section>
+    </div>
+
+    <footer class="page-footer">Made for clear ideas and meaningful conversations.</footer>
+  </main>
+</body>
+</html>
