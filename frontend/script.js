@@ -1,5 +1,5 @@
 // Find the form and message areas in the HTML so JavaScript can update them.
-const API_BASE_URL = "http://127.0.0.1:8000"; // Set this to the deployed Render API URL before publishing.
+const API_BASE_URL = "https://linkedin-post-generators.onrender.com";// Set this to the deployed Render API URL before publishing.
 const postForm = document.querySelector("#post-form");
 const topicInput = document.querySelector("#topic");
 const purposeSelect = document.querySelector("#purpose");
