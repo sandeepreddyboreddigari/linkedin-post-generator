@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 AI_PROVIDER = os.getenv("AI_PROVIDER", "ollama").strip().lower()
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434").rstrip("/")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
+GEMINI_FALLBACK_MODEL = os.getenv("GEMINI_FALLBACK_MODEL", "gemini-3.5-flash-lite")
 FRONTEND_ORIGINS = [
     origin.strip()
     for origin in os.getenv(
@@ -121,6 +122,7 @@ Important factual boundary: only the additional information contains personal ev
         "Return only the post text."
     )
 
+    generated_post = ""
     if AI_PROVIDER == "ollama":
         request = Request(
             f"{OLLAMA_BASE_URL}/api/generate",
@@ -164,81 +166,70 @@ Important factual boundary: only the additional information contains personal ev
                 detail="Gemini support is not installed. Install the dependencies in backend/requirements.txt.",
             ) from error
 
-               try:
+        try:
             client = genai.Client(api_key=api_key)
+            models_to_try = list(dict.fromkeys([GEMINI_MODEL, GEMINI_FALLBACK_MODEL]))
 
-            max_attempts = 3
-
-            for attempt in range(max_attempts):
-                try:
-                    response = client.models.generate_content(
-                        model=GEMINI_MODEL,
-                        contents=prompt,
-                        config=types.GenerateContentConfig(
-                            system_instruction=system_instruction
-                        ),
-                    )
-
-                    generated_post = (response.text or "").strip()
-                    break
-
-                except genai_errors.APIError as error:
-                    status_code = getattr(error, "code", None)
-                    message = str(
-                        getattr(error, "message", None)
-                        or "Gemini API request failed."
-                    )
-
-                    # Retry temporary Gemini errors
-                    if status_code in {429, 500, 502, 503, 504} and attempt < max_attempts - 1:
-                        wait_time = 2 ** attempt
-                        logger.warning(
-                            "Gemini temporary error HTTP %s. Retrying in %s seconds...",
-                            status_code,
-                            wait_time,
+            for model_index, model_name in enumerate(models_to_try):
+                max_attempts = 3 if model_index == 0 else 2
+                for attempt in range(max_attempts):
+                    try:
+                        response = client.models.generate_content(
+                            model=model_name,
+                            contents=prompt,
+                            config=types.GenerateContentConfig(
+                                system_instruction=system_instruction
+                            ),
                         )
-                        time.sleep(wait_time)
-                        continue
+                        generated_post = (response.text or "").strip()
+                        break
+                    except genai_errors.APIError as error:
+                        status_code = getattr(error, "code", None)
+                        message = str(
+                            getattr(error, "message", None)
+                            or "Gemini API request failed."
+                        ).replace(api_key, "[REDACTED]")
 
-                    message = message.replace(api_key, "[REDACTED]")
+                        if status_code in {429, 500, 502, 503, 504} and attempt < max_attempts - 1:
+                            wait_time = 2 ** attempt
+                            logger.warning(
+                                "Temporary Gemini API error model=%s status_code=%s; retrying in %s seconds",
+                                model_name,
+                                status_code,
+                                wait_time,
+                            )
+                            time.sleep(wait_time)
+                            continue
 
-                    logger.error(
-                        "Gemini API error type=%s status_code=%s message=%s",
-                        type(error).__name__,
-                        status_code,
-                        message,
-                    )
+                        if status_code == 503 and model_index + 1 < len(models_to_try):
+                            logger.warning(
+                                "Gemini model %s remains unavailable; trying fallback model %s",
+                                model_name,
+                                models_to_try[model_index + 1],
+                            )
+                            break
 
-                    raise HTTPException(
-                        status_code=502,
-                        detail=f"Gemini API error (HTTP {status_code}): {message}",
-                    ) from error
+                        logger.error(
+                            "Gemini API error type=%s model=%s status_code=%s message=%s",
+                            type(error).__name__,
+                            model_name,
+                            status_code,
+                            message,
+                        )
+                        if status_code == 503:
+                            raise HTTPException(
+                                status_code=503,
+                                detail=f"Gemini models are temporarily unavailable after retries. Please try again shortly. {message}",
+                            ) from error
+                        raise HTTPException(
+                            status_code=502,
+                            detail=f"Gemini API error (HTTP {status_code}): {message}",
+                        ) from error
 
+                if generated_post:
+                    break
         except HTTPException:
             raise
-
-        except Exception as error:
-            logger.error(
-                "Gemini request failed type=%s",
-                type(error).__name__,
-            )
-            raise HTTPException(
-                status_code=502,
-                detail="Gemini request failed. Check network access and the Gemini service configuration.",
-            ) from error
-            status_code = getattr(error, "code", None)
-            message = str(getattr(error, "message", None) or "Gemini API request failed.")
-            message = message.replace(api_key, "[REDACTED]")
-            logger.error(
-                "Gemini API error type=%s status_code=%s message=%s",
-                type(error).__name__,
-                status_code,
-                message,
-            )
-            raise HTTPException(
-                status_code=502,
-                detail=f"Gemini API error (HTTP {status_code}): {message}",
-            ) from error
         except Exception as error:
             logger.error("Gemini request failed type=%s", type(error).__name__)
             raise HTTPException(
